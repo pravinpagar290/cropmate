@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Mic, Volume2, Send, Bot, User as UserIcon } from 'lucide-react'
+import { Mic, MicOff, Volume2, Send, Bot, User as UserIcon } from 'lucide-react'
 import { Button, Card, PageHeader } from '../components/Ui.jsx'
 import { useAppContext } from '../context/AppContext.jsx'
 import { api } from '../services/api.js'
@@ -10,6 +10,7 @@ export function AssistantPage() {
   const [messages, setMessages] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [isListening, setIsListening] = useState(false)
   const messagesEndRef = useRef(null)
   const recognitionRef = useRef(null)
 
@@ -66,15 +67,56 @@ export function AssistantPage() {
       return
     }
 
-    recognitionRef.current = new SpeechRecognition()
-    recognitionRef.current.lang = language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN'
-    recognitionRef.current.onresult = (event) => {
-      const transcript = event.results?.[0]?.[0]?.transcript
-      if (transcript) {
+    // If already listening, stop it and submit any captured text
+    if (recognitionRef.current && isListening) {
+      recognitionRef.current.stop()
+      return
+    }
+
+    const recognition = new SpeechRecognition()
+    recognition.lang = language === 'mr' ? 'mr-IN' : language === 'hi' ? 'hi-IN' : 'en-IN'
+    recognition.continuous = false
+    recognition.interimResults = true
+
+    let finalTranscript = ''
+
+    recognition.onstart = () => {
+      setIsListening(true)
+      setError('')
+    }
+
+    recognition.onresult = (event) => {
+      // Get the final result (last index)
+      const resultIndex = event.results.length - 1
+      const transcript = event.results[resultIndex][0].transcript
+      
+      // Mark as final if confirmed
+      if (event.results[resultIndex].isFinal) {
+        finalTranscript = transcript
+        setQuestion(transcript)
+      } else {
+        // Show interim results in input field
         setQuestion(transcript)
       }
     }
-    recognitionRef.current.start()
+
+    recognition.onerror = (event) => {
+      setError(`Voice input error: ${event.error}`)
+      setIsListening(false)
+    }
+
+    recognition.onend = () => {
+      setIsListening(false)
+      // Auto-submit if we have captured text
+      if (finalTranscript.trim()) {
+        setQuestion(finalTranscript)
+        // Trigger form submission
+        handleSubmit()
+      }
+    }
+
+    recognitionRef.current = recognition
+    recognition.start()
   }
 
   function speak(text) {
@@ -174,10 +216,14 @@ export function AssistantPage() {
           <button
             type="button"
             onClick={handleVoiceInput}
-            className="p-3 text-stone-500 hover:text-emerald-600 hover:bg-white rounded-full transition-all"
-            title="Voice input"
+            className={`p-3 rounded-full transition-all ${
+              isListening 
+                ? 'text-white bg-red-500 animate-pulse' 
+                : 'text-stone-500 hover:text-emerald-600 hover:bg-white'
+            }`}
+            title={isListening ? 'Stop recording' : 'Voice input'}
           >
-            <Mic className="w-5 h-5" />
+            {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
           </button>
           
           <input
